@@ -8,6 +8,11 @@ import traceback
 from geomag.geomag import GeoMag
 import configparser
 
+import debugpy
+debugpy.listen(("localhost", 8001)) 
+print("⏳ Waiting for debugger attach...")
+debugpy.wait_for_client() 
+
 __version__ = '1.0.1'
 
 # Setup logging
