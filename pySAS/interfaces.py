@@ -24,7 +24,7 @@ from pySatlantic.instrument import Instrument as SatlanticParser
 from pySatlantic.instrument import FrameError as SatlanticFrameError
 from pySatlantic.instrument import CalibrationFileError as SatlanticCalibrationFileError
 import atexit
-
+import pySAS.pytriosfork.sample_trios as trios
 
 def get_serial_instance(interface, cfg):
     s = Serial()
@@ -752,6 +752,33 @@ class IMU(Sensor):
                 f',{self.yaw:.1f},{self.pitch:.1f},{self.roll:.1f}\x0D\x0A').encode('ascii')
 
 
+class Ramses(Sensor):
+
+    def __init__(self, cfg, data_logger=None, parser=None):
+        super().__init__(cfg, data_logger)
+        self.__logger = logging.getLogger(self.__class__.__name__)
+        self.__logger.info("Initialized")
+        self._packet_Li = None
+
+    
+    def start(self):
+        self.busy = True
+        ## will change later
+        if not self._parser.cal:
+            self.__logger.critical('A calibration file is required for the system to work. '
+                                   'Please set a calibration file using the button "Select or Upload" under '
+                                   'the section "HyperSAS Device File" at the bottom of the sidebar.')
+        else:
+            super().start()
+
+    def run(self):
+        while self.alive:
+            self.__logger.info("Running")
+            trios.run_sample()
+            sleep(1)
+
+    
+        
 class HyperOCR(Sensor):
 
     MAX_BUFFER_LENGTH = 16384
