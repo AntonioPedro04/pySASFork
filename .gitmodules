@@ -1,0 +1,3 @@
+[submodule "pySAS/PyTriosFork"]
+	path = pySAS/PyTriosFork
+	url = https://github.com/AntonioPedro04/PyTriosFork.git
