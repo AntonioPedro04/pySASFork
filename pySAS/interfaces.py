@@ -24,7 +24,7 @@ from pySatlantic.instrument import Instrument as SatlanticParser
 from pySatlantic.instrument import FrameError as SatlanticFrameError
 from pySatlantic.instrument import CalibrationFileError as SatlanticCalibrationFileError
 import atexit
-import pySAS.pytriosfork.sample_trios as trios
+import pySAS.PyTriosFork.sample_trios as trios
 
 def get_serial_instance(interface, cfg):
     s = Serial()
