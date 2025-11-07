@@ -108,6 +108,12 @@ sidebar = html.Div([
                         dbc.Switch(id="tower_switch", value=False, className='mt-2 ms-1 d-inline-block')],
                             width=8, className="text-end"),
                 ], className="mb-3"),
+                dbc.Row([
+                    dbc.Label("MockRamses", html_for="MockRamses_switch", width=6),
+                    dbc.Col([
+                        dbc.Switch(id="MockRamses_switch", value=False, className='mt-2 ms-1 d-inline-block')],
+                            width=6, className="text-end"),
+                ], className="mb-3"),
                 html.Div([
                     dcc.Slider(
                         id='tower_orientation', min=-180, max=180, step=1, value=96,
@@ -171,7 +177,7 @@ def get_time(_):
 
 
 @app.callback(Output('hypersas_switch', 'disabled'), Output('gps_switch', 'disabled'),
-              Output('tower_switch', 'disabled'), Output('tower_zero', 'className'),
+              Output('tower_switch', 'disabled'), Output('MockRamses_switch', 'disabled'), Output('tower_zero', 'className'),
               Output('tower_orientation', 'className'), Output('tower_orientation', 'value', allow_duplicate=True),
               Input('operation_mode', 'value'), prevent_initial_call=True)
 def set_operation_mode(mode):
@@ -187,19 +193,20 @@ def set_operation_mode(mode):
     hide_tower_zero = 'd-none' if mode == 'auto' else 'mt-2 me-2 text-decoration-none'
     hide_tower_orientation = 'd-none' if mode == 'auto' else ''
     tower_orientation = no_update if mode == 'auto' else runner.indexing_table.position
-    return disable_switch, disable_switch, disable_switch, hide_tower_zero, hide_tower_orientation, tower_orientation
+    return disable_switch, disable_switch, disable_switch, disable_switch, hide_tower_zero, hide_tower_orientation, tower_orientation
 
 
-@app.callback(Output('hypersas_switch', 'value'), Output('gps_switch', 'value'), Output('tower_switch', 'value'),
+@app.callback(Output('hypersas_switch', 'value'), Output('gps_switch', 'value'), Output('tower_switch', 'value'), Output('MockRamses_switch', 'value'),
               Input('status_refresh_interval', 'n_intervals'),
-              State('hypersas_switch', 'value'), State('gps_switch', 'value'), State('tower_switch', 'value'))
-def get_switches(_, hypersas_switch, gps_switch, tower_switch):
+              State('hypersas_switch', 'value'), State('gps_switch', 'value'), State('tower_switch', 'value'), State('MockRamses_switch', 'value'))
+def get_switches(_, hypersas_switch, gps_switch, tower_switch, MockRamses_switch):
     hypersas = no_update if runner.hypersas.alive == hypersas_switch or runner.hypersas.busy else runner.hypersas.alive
     gps = no_update if runner.gps.alive == gps_switch or runner.gps.busy else runner.gps.alive
     tower = no_update if runner.indexing_table.alive == tower_switch or runner.indexing_table.busy else runner.indexing_table.alive
-    if hypersas == no_update and gps == no_update and tower == no_update:
+    ramses = no_update  if runner.ramses.alive == MockRamses_switch or runner.ramses.busy else runner.ramses.alive
+    if hypersas == no_update and gps == no_update and tower == no_update and ramses == no_update:
         raise PreventUpdate
-    return hypersas, gps, tower
+    return hypersas, gps, tower, ramses
 
 
 @app.callback(Output('no_output', 'children', allow_duplicate=True),
@@ -244,6 +251,22 @@ def set_gps_switch(switch):
         else:
             logger.debug('set_gps_switch: stop')
             runner.gps.stop()
+
+@app.callback(Output('no_output', 'children', allow_duplicate=True),
+              Input('MockRamses_switch', 'value'),
+              prevent_initial_call=True)
+def set_MockRamses_switch(switch):
+    if runner.ramses.busy:
+        logger.debug('set_MockRamses_switch: busy')
+        raise PreventUpdate
+    if switch != runner.ramses.alive:
+        runner.ramses.busy = True
+        if switch:
+            logger.debug('set_MockRamses_switch: start')
+            runner.ramses.start()
+        else:
+            logger.debug('set_MockRamses_switch: stop')
+            runner.ramses.stop()
 
 
 @app.callback([Output('gps_flag_hdg', 'children'), Output('gps_flag_hdg', 'color'), Output('gps_flag_hdg', 'className'),
@@ -909,6 +932,15 @@ fig.add_scatter(x=[0, 1], y=[0, 1], name='Li (&mu;W/cm<sup>2</sup>/nm/sr)', mark
 es_id = 2
 fig.add_scatter(x=[0, 1], y=[0, 1], yaxis='y2', name='Es (&mu;W/cm<sup>2</sup>/nm)', marker_color='orange', mode='lines',
                 visible=False)
+mocklt_id = 3
+fig.add_scatter(x=[0, 1], y=[0, 1], name='Lt (&mu;W/cm<sup>2</sup>/nm/sr)', marker_color="#67376d", mode='lines',
+                visible=False)
+mockli_id = 4
+fig.add_scatter(x=[0, 1], y=[0, 1], name='Li (&mu;W/cm<sup>2</sup>/nm/sr)', marker_color="#0e9219", mode='lines',
+                visible=False)
+mockes_id = 5
+fig.add_scatter(x=[0, 1], y=[0, 1], yaxis='y2', name='Es (&mu;W/cm<sup>2</sup>/nm)', marker_color="#920e2b", mode='lines',
+                visible=False)
 
 fig.update_layout(
     title='HyperSAS Spectrum', title_x=0.5,
@@ -929,15 +961,16 @@ fig_spectrum = fig
 def get_fig_spectrum(_, cache):
     fig = Patch()
     if cache is None:
-        cache = [False] * 3
+        cache = [False] * 6
     # Check alive
     if not runner.hypersas.alive:
-        cache = [False] * 3
+        cache = [False] * 6
         for id in range(3):
             fig['data'][id]['visible'] = False
     # Parse data
     timestamp = time()
     runner.hypersas.parse_packets()
+    runner.ramses.parse_packets()
     if runner.es:
         runner.es.parse_packets()
     # Update data
@@ -975,6 +1008,30 @@ def get_fig_spectrum(_, cache):
             fig['data'][es_id]['y'] = runner.hypersas.Es
         else:
             fig['data'][es_id]['visible'] = False
+    if runner.ramses.mockLt is not None and timestamp - runner.ramses.packet_mockLt_parsed < runner.DATA_EXPIRED_DELAY:
+        fig['data'][mocklt_id]['visible'] = True
+        if cache[mocklt_id] is False:
+            fig['data'][mocklt_id]['x'] = runner.ramses.mockLt_wavelength
+            cache[mocklt_id] = True
+        fig['data'][mocklt_id]['y'] = runner.ramses.mockLt
+    else:
+        fig['data'][mocklt_id]['visible'] = False
+    if runner.ramses.mockLi is not None and timestamp - runner.ramses.packet_mockLi_parsed < runner.DATA_EXPIRED_DELAY:
+        fig['data'][mockli_id]['visible'] = True
+        if cache[mockli_id] is False:
+            fig['data'][mockli_id]['x'] = runner.ramses.mockLi_wavelength
+            cache[mockli_id] = True
+        fig['data'][mockli_id]['y'] = runner.ramses.mockLi
+    else:
+        fig['data'][mockli_id]['visible'] = False
+    if runner.ramses.mockEs is not None and timestamp - runner.ramses.packet_mockEs_parsed < runner.DATA_EXPIRED_DELAY:
+        fig['data'][mockes_id]['visible'] = True
+        if cache[mockes_id] is False:
+            fig['data'][mockes_id]['x'] = runner.ramses.mockEs_wavelength
+            cache[mockes_id] = True
+        fig['data'][mockes_id]['y'] = runner.ramses.mockEs
+    else:
+        fig['data'][mockes_id]['visible'] = False                   
     return fig, cache
 
 

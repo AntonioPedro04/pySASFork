@@ -5,7 +5,8 @@ from serial import Serial, SerialException
 from timeit import default_timer
 from time import sleep, time
 from datetime import datetime
-from math import isnan, floor
+from math import isnan, floor, sin, pi
+import random
 from threading import Thread, Lock
 import logging
 from struct import unpack_from
@@ -1137,6 +1138,123 @@ class Es(HyperOCR):
     def __init__(self, cfg, data_logger=None, parser=None):
         super().__init__(cfg, data_logger, parser)
         self.__logger = logging.getLogger(self.__class__.__name__)
+
+class MockRamses:
+    """
+    Portless mock of a Ramses-like instrument producing Lt, Li and Es arrays.
+    Designed for testing without hardware. Does not inherit from `Sensor` because
+    it has no serial port.
+    """
+    def __init__(self, cfg=None, data_logger=None):
+        self.__logger = logging.getLogger(self.__class__.__name__)
+        self.__logger.info('MockRamses initialized')
+
+        # Parameters (cfg optional)
+        self.bands, self.frequency, self.amplitude, self.noise = 10, 1.0, 1.0, 0.01
+
+        # Synthetic wavelengths (nm)
+        start_nm = 400.0
+        end_nm = 700.0
+        step = (end_nm - start_nm) / max(1, self.bands - 1)
+        self.mockLt_wavelength = [start_nm + i * step for i in range(self.bands)]
+        self.mockLi_wavelength = list(self.mockLt_wavelength)
+        self.mockEs_wavelength = list(self.mockLt_wavelength)
+
+        # Measurements (renamed to avoid collision with real Es naming)
+        self.mockLt = [float('nan')] * self.bands
+        self.mockLi = [float('nan')] * self.bands
+        self.mockEs = [float('nan')] * self.bands
+
+        # Timestamps for received/parsed packets (parity with HyperOCR, renamed)
+        self.packet_mockLt_received = float('nan')
+        self.packet_mockLi_received = float('nan')
+        self.packet_mockEs_received = float('nan')
+        self.packet_mockLt_parsed = float('nan')
+        self.packet_mockLi_parsed = float('nan')
+        self.packet_mockEs_parsed = float('nan')
+
+        # Threading
+        self._thread = None
+        self.alive = False
+        self.busy = False
+
+        # Data logger
+        if data_logger is not None:
+            self._data_logger = data_logger
+        else:
+            if cfg is not None:
+                path = cfg.get(self.__class__.__name__, 'path_to_data', fallback=os.path.join(os.path.dirname(__file__), 'data'))
+                length = cfg.getint(self.__class__.__name__, 'file_length', fallback=60)
+            else:
+                path = os.path.join(os.path.dirname(__file__), 'data')
+                length = 60
+            try:
+                self._data_logger = SatlanticLogger({'filename_prefix': self.__class__.__name__, 'path': path, 'length': length})
+            except Exception:
+                self._data_logger = None
+
+        atexit.register(self.stop)
+
+    def start(self):
+        if self.alive:
+            self.__logger.debug('MockRamses already running')
+            return
+        self.alive = True
+        self._thread = Thread(name=self.__class__.__name__, target=self.run)
+        self._thread.daemon = True
+        self._thread.start()
+        self.__logger.info('MockRamses started')
+
+    def run(self):
+        while self.alive:
+            t = time()
+            # Generate simple synthetic spectra
+            center = (self.mockLt_wavelength[0] + self.mockLt_wavelength[-1]) / 2.0
+            width = max(1.0, (self.mockLt_wavelength[-1] - self.mockLt_wavelength[0]) / 4.0)
+            for i, wl in enumerate(self.mockLt_wavelength):
+                baseline = self.amplitude * (1.0 + 0.3 * sin(2 * pi * 0.01 * wl))
+                gauss = self.amplitude * (1.0 - ((wl - center) ** 2) / (2 * width * width))
+                noise_Lt = random.uniform(-self.noise, self.noise)
+                noise_Li = random.uniform(-self.noise, self.noise)
+                noise_Es = random.uniform(-self.noise, self.noise)
+                self.mockLt[i] = max(0.0, gauss + noise_Lt)
+                self.mockLi[i] = max(0.0, baseline * 0.8 + noise_Li)
+                self.mockEs[i] = max(0.0, baseline * 0.2 + noise_Es)
+
+            # Update timestamps
+            self.packet_mockLt_received = t
+            self.packet_mockLi_received = t
+            self.packet_mockEs_received = t
+
+            # Best-effort logging
+            try:
+                if self._data_logger is not None:
+                    try:
+                        # Use distinct keys for mock measurements to avoid collisions with real Es
+                        self._data_logger.write({'mockLt': self.mockLt, 'mockLi': self.mockLi, 'mockEs': self.mockEs}, t)
+                    except Exception:
+                        self._data_logger.write(self.mockLt + self.mockLi + self.mockEs, t)
+            except Exception:
+                pass
+
+            sleep_time = max(0.0, 1.0 / max(1.0, self.frequency) - (time() - t))
+            sleep(sleep_time)
+
+    def stop(self, from_thread=False):
+        self.__logger.info('MockRamses stopping')
+        self.alive = False
+        if self._thread is not None and not from_thread:
+            self._thread.join(timeout=1)
+
+    def parse_packets(self):
+        now = time()
+        if not isnan(self.packet_mockLt_received):
+            self.packet_mockLt_parsed = now
+        if not isnan(self.packet_mockLi_received):
+            self.packet_mockLi_parsed = now
+        if not isnan(self.packet_mockEs_received):
+            self.packet_mockEs_parsed = now
+
 
 
 if __name__ == '__main__':

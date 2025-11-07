@@ -8,7 +8,7 @@ import socket
 import atexit
 from subprocess import run
 from threading import Thread
-from pySAS.interfaces import IndexingTable, GPS, HyperSAS, Es, IMU
+from pySAS.interfaces import IndexingTable, GPS, HyperSAS, Es, IMU, MockRamses
 from pySAS import WORLD_MAGNETIC_MODEL
 
 # pySolar
@@ -80,6 +80,7 @@ class Runner:
         self.indexing_table = IndexingTable(self.cfg)
         self.gps = GPS(self.cfg, self.data_logger)
         self.hypersas = HyperSAS(self.cfg, self.data_logger)
+        self.ramses = MockRamses(self.cfg, self.data_logger)
         self.es, self.imu = None, None
         if 'Es' in self.cfg.sections():
             self.es = Es(self.cfg, self.data_logger, parser=self.hypersas._parser)
