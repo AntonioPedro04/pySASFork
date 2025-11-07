@@ -759,6 +759,8 @@ class Ramses(Sensor):
         self.__logger = logging.getLogger(self.__class__.__name__)
         self.__logger.info("Initialized")
         self._packet_Li = None
+        self._parser = SatlanticParser() ## temporary
+        self._parser.cal = True
 
     
     def start(self):
@@ -769,12 +771,22 @@ class Ramses(Sensor):
                                    'Please set a calibration file using the button "Select or Upload" under '
                                    'the section "HyperSAS Device File" at the bottom of the sidebar.')
         else:
-            super().start()
+            self.busy = True
+            if not self.alive:
+                self.__logger.debug('start')
+                if self._relay is not None:
+                    self._relay.on()
+                sleep(0.5)  # Leave time for sensor to turn on
+                self.alive = True
+                self._thread = Thread(name=self.__class__.__name__, target=self.run)
+                self._thread.daemon = True
+                self._thread.start()
+            self.busy = False
 
     def run(self):
         while self.alive:
             self.__logger.info("Running")
-            trios.run_sample()
+            trios.runSampleFromPySAS(port="COM3",repeat=1,type=1, inttime=32, file="dados.txt")
             sleep(1)
 
     

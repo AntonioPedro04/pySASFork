@@ -140,7 +140,7 @@ class Runner:
                 # Get Sun Position
                 if not self.get_sun_position():
                     self._wait(iteration_timestamp)
-                    continue
+                    ## removed the continue for testing
 
                 # Toggle Sleep Mode
                 if self.sun_elevation < self.min_sun_elevation:  # TODO Implement sleep when no position or stalled
