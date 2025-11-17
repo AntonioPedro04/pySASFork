@@ -8,7 +8,7 @@ import socket
 import atexit
 from subprocess import run
 from threading import Thread
-from pySAS.interfaces import IndexingTable, GPS, HyperSAS, Es, IMU, Ramses
+from pySAS.interfaces import IndexingTable, GPS, HyperSAS, Es, IMU, Ramses, RamsesEs
 from pySAS import WORLD_MAGNETIC_MODEL
 
 # pySolar
@@ -79,11 +79,18 @@ class Runner:
         # Controllers & Sensors
         self.indexing_table = IndexingTable(self.cfg)
         self.gps = GPS(self.cfg, self.data_logger)
-        self.hypersas = HyperSAS(self.cfg, self.data_logger)
-        self.ramses = Ramses(self.cfg)
         self.es, self.imu = None, None
-        if 'Es' in self.cfg.sections():
-            self.es = Es(self.cfg, self.data_logger, parser=self.hypersas._parser)
+
+        if 'Ramses' in self.cfg.sections():
+            self.hypersas = Ramses(self.cfg)
+            if 'RamsesEs' in self.cfg.sections():
+                ## will change to ramses es later
+                self.es = Es(self.cfg, self.data_logger, parser=self.hypersas._parser)
+        else:
+            self.hypersas = HyperSAS(self.cfg, self.data_logger)
+            if 'Es' in self.cfg.sections():
+                self.es = Es(self.cfg, self.data_logger, parser=self.hypersas._parser)    
+        
         if 'IMU' in self.cfg.sections():
             self.imu = IMU(self.cfg, self.data_logger)
 
@@ -173,7 +180,6 @@ class Runner:
                             if self.imu:
                                 self.imu.start()
                             self.hypersas.start()
-                            self.ramses.start()
                             self.asleep = False
                     self.start_sleep_timestamp = None
                 if first_iteration:
