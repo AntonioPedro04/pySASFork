@@ -1164,14 +1164,18 @@ class MockRamses:
         self.mockLt = [float('nan')] * self.bands
         self.mockLi = [float('nan')] * self.bands
         self.mockEs = [float('nan')] * self.bands
+        self.mockroll = float('nan')
+        self.mockpitch = float('nan')
 
         # Timestamps for received/parsed packets (parity with HyperOCR, renamed)
         self.packet_mockLt_received = float('nan')
         self.packet_mockLi_received = float('nan')
         self.packet_mockEs_received = float('nan')
+        self.packet_mockTHS_received = float('nan')
         self.packet_mockLt_parsed = float('nan')
         self.packet_mockLi_parsed = float('nan')
         self.packet_mockEs_parsed = float('nan')
+        self.packet_mockTHS_parsed = float('nan')
 
         # Threading
         self._thread = None
@@ -1196,13 +1200,15 @@ class MockRamses:
         atexit.register(self.stop)
 
     def start(self):
-        if self.alive:
-            self.__logger.debug('MockRamses already running')
-            return
-        self.alive = True
-        self._thread = Thread(name=self.__class__.__name__, target=self.run)
-        self._thread.daemon = True
-        self._thread.start()
+        try:
+            self.busy = True
+            if not self.alive:
+                self.alive = True
+                self._thread = Thread(name=self.__class__.__name__, target=self.run)
+                self._thread.daemon = True
+                self._thread.start()
+        finally:
+            self.busy = False
         self.__logger.info('MockRamses started')
 
     def run(self):
@@ -1217,15 +1223,18 @@ class MockRamses:
                 noise_Lt = random.uniform(-self.noise, self.noise)
                 noise_Li = random.uniform(-self.noise, self.noise)
                 noise_Es = random.uniform(-self.noise, self.noise)
+                noise_THS = random.uniform(-self.noise, self.noise)
                 self.mockLt[i] = max(0.0, gauss + noise_Lt)
                 self.mockLi[i] = max(0.0, baseline * 0.8 + noise_Li)
                 self.mockEs[i] = max(0.0, baseline * 0.2 + noise_Es)
+                self.mockroll = 5*sin(noise_THS) + 0.5
+                self.mockpitch = 10*sin(noise_THS) + 0.5
 
             # Update timestamps
             self.packet_mockLt_received = t
             self.packet_mockLi_received = t
             self.packet_mockEs_received = t
-
+            self.packet_mockTHS_received = t
             # Best-effort logging
             try:
                 if self._data_logger is not None:
@@ -1241,10 +1250,19 @@ class MockRamses:
             sleep(sleep_time)
 
     def stop(self, from_thread=False):
-        self.__logger.info('MockRamses stopping')
-        self.alive = False
-        if self._thread is not None and not from_thread:
-            self._thread.join(timeout=1)
+        try:
+            self.busy = True
+            self.__logger.debug('stop')
+            if self.alive:
+                self.alive = False
+                # TODO Find elegant way to immediatly stop thread as slow down user interface when switching from auto to manual mode (timeout in serial won't do it as use serial.cancel_read)
+                if not from_thread:
+                    self._thread.join(2)
+                    if self._thread.is_alive():
+                        self.__logger.error('Thread did not join.')
+                self._data_logger.close()  # Required to start new log_data file when instrument restart
+        finally:
+            self.busy = False
 
     def parse_packets(self):
         now = time()
@@ -1254,6 +1272,8 @@ class MockRamses:
             self.packet_mockLi_parsed = now
         if not isnan(self.packet_mockEs_received):
             self.packet_mockEs_parsed = now
+        if not isnan(self.packet_mockTHS_received):
+            self.packet_mockTHS_parsed = now
 
 
 

@@ -594,7 +594,6 @@ def write_file(filename, content):
     with open(filename, "wb") as fp:
         fp.write(base64.decodebytes(data))
 
-
 def get_device_file_options(and_current=True):
     path_to_device_files = runner.cfg.get('HyperSAS', 'path_to_device_files')
     if not os.path.isdir(path_to_device_files):
@@ -965,7 +964,7 @@ def get_fig_spectrum(_, cache):
     # Check alive
     if not runner.hypersas.alive:
         cache = [False] * 6
-        for id in range(3):
+        for id in range(6):
             fig['data'][id]['visible'] = False
     # Parse data
     timestamp = time()
@@ -1007,7 +1006,7 @@ def get_fig_spectrum(_, cache):
                 cache[es_id] = True
             fig['data'][es_id]['y'] = runner.hypersas.Es
         else:
-            fig['data'][es_id]['visible'] = False
+            fig['data'][es_id]['visible'] = False      
     if runner.ramses.mockLt is not None and timestamp - runner.ramses.packet_mockLt_parsed < runner.DATA_EXPIRED_DELAY:
         fig['data'][mocklt_id]['visible'] = True
         if cache[mocklt_id] is False:
@@ -1023,15 +1022,7 @@ def get_fig_spectrum(_, cache):
             cache[mockli_id] = True
         fig['data'][mockli_id]['y'] = runner.ramses.mockLi
     else:
-        fig['data'][mockli_id]['visible'] = False
-    if runner.ramses.mockEs is not None and timestamp - runner.ramses.packet_mockEs_parsed < runner.DATA_EXPIRED_DELAY:
-        fig['data'][mockes_id]['visible'] = True
-        if cache[mockes_id] is False:
-            fig['data'][mockes_id]['x'] = runner.ramses.mockEs_wavelength
-            cache[mockes_id] = True
-        fig['data'][mockes_id]['y'] = runner.ramses.mockEs
-    else:
-        fig['data'][mockes_id]['visible'] = False                   
+        fig['data'][mockli_id]['visible'] = False               
     return fig, cache
 
 
@@ -1048,7 +1039,13 @@ fig.add_scatter(x=[], y=[], name='Pitch (THS)', marker_color='gray', mode='lines
 ths_roll_id = 3
 fig.add_scatter(x=[], y=[], name='Roll (THS)', marker_color='gray', line_dash='dash', mode='lines+markers',
                 visible=False)
-es_490_id = 4
+ths_mockpitch_id = 4
+fig.add_scatter(x=[], y=[], name='Pitch (THS)', marker_color='gray', mode='lines+markers',
+                visible=False)
+ths_mockroll_id = 5
+fig.add_scatter(x=[], y=[], name='Roll (THS)', marker_color='gray', line_dash='dash', mode='lines+markers',
+                visible=False)
+es_490_id = 6
 fig.add_scatter(x=[], y=[], yaxis='y2', name='Es(490) (&mu;W/cm<sup>2</sup>/nm)',
                 marker_color='orange', mode='lines+markers', visible=False)
 
@@ -1070,10 +1067,10 @@ fig_timeseries = fig
 def get_fig_timeseries(_, cache):
     fig = Patch()
     timestamp = time()
-    max_points = [120, 120, 60, 60, 90]
+    max_points = [120, 120, 60, 60, 60, 60, 90]
     if cache is None:
-        count, last_timestamp = [0] * 5, [0] * 5
-        for id in range(5):
+        count, last_timestamp = [0] * 7, [0] * 7
+        for id in range(7):
             fig['data'][id]['x'] = []
             fig['data'][id]['y'] = []
     else:
@@ -1099,10 +1096,14 @@ def get_fig_timeseries(_, cache):
             fig['data'][id]['visible'] = False
 
     # Get THS Heading
+    set_patch(runner.ramses.packet_mockTHS_parsed, runner.ramses.packet_mockTHS_received,
+                runner.ramses.mockpitch, ths_mockpitch_id)
+    set_patch(runner.ramses.packet_mockTHS_parsed, runner.ramses.packet_mockTHS_received,
+                runner.ramses.mockroll, ths_mockroll_id)
     set_patch(runner.hypersas.packet_THS_parsed, runner.hypersas._packet_THS_received,
-              runner.hypersas.pitch, ths_pitch_id)
+                runner.hypersas.pitch, ths_pitch_id)
     set_patch(runner.hypersas.packet_THS_parsed, runner.hypersas._packet_THS_received,
-              runner.hypersas.roll, ths_roll_id)
+                runner.hypersas.roll, ths_roll_id)
     # Get IMU Heading
     if runner.imu:
         set_patch(runner.imu.packet_received, runner.imu.packet_received,
@@ -1110,6 +1111,11 @@ def get_fig_timeseries(_, cache):
         set_patch(runner.imu.packet_received, runner.imu.packet_received,
                   runner.imu.roll, imu_roll_id)
     # Get Es(490)
+    if runner.ramses:
+        if runner.ramses.mockEs is not None:
+            wl_id = np.argmin(abs(np.array(runner.ramses.mockEs_wavelength) - 490))
+            set_patch(runner.ramses.packet_mockEs_parsed, runner.ramses.packet_mockEs_received,
+                      runner.ramses.mockEs[wl_id], es_490_id)   
     if runner.es:
         if runner.es.Es is not None:
             wl_id = np.argmin(abs(np.array(runner.es.Es_wavelength) - 490))
@@ -1120,6 +1126,7 @@ def get_fig_timeseries(_, cache):
             wl_id = np.argmin(abs(np.array(runner.hypersas.Es_wavelength) - 490))
             set_patch(runner.hypersas.packet_Es_parsed, runner.hypersas._packet_Es_received,
                       runner.hypersas.Es[wl_id], es_490_id)
+
     return fig, (count, last_timestamp)
 
 
