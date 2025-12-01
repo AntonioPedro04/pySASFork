@@ -792,10 +792,8 @@ class Ramses(Sensor):
             self.busy = False
 
     def run(self):
-        while self.alive:
             self.__logger.info("Running")
-            trios.runSampleFromPySAS(port="COM3",repeat=1,type=1, inttime=32, file="dados.txt")
-            sleep(1)
+            trios.runSampleFromPySAS(port="/dev/ttyUSB0",repeat=5,type=1, inttime=1024, file="dados.txt")
     
     def parse_packets(self):
         return
