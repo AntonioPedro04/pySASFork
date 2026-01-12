@@ -767,15 +767,19 @@ class Ramses(Sensor):
         self.pitch = float('nan')
         self.roll = float('nan')
         self.Es = None
-        self.Lt = None
-        self.Li = None
+        self.Li_alive = None
+        self.Lt_alive = None
+        self.Li_config = cfg['Ramses']
+        self.Lt_config = cfg['RamsesLt']
+        self.configs = {'Li': self.Li_config,'Lt':self.Lt_config}
+        self.outputFiles = ['Li_data.txt','Lt_data.txt']
 
     
     def start(self):
         self.busy = True
         ## will change later
         if not self._parser.cal:
-            self.__logger.critical('A calibration file is required for the system to work. '
+            self.__loggLi_configer.critical('A calibration file is required for the system to work. '
                                    'Please set a calibration file using the button "Select or Upload" under '
                                    'the section "HyperSAS Device File" at the bottom of the sidebar.')
         else:
@@ -786,14 +790,65 @@ class Ramses(Sensor):
                     self._relay.on()
                 sleep(0.5)  # Leave time for sensor to turn on
                 self.alive = True
-                self._thread = Thread(name=self.__class__.__name__, target=self.run)
+                for (key,value), outputFile in zip(self.configs.items(),self.outputFiles):
+                    self._thread = Thread(name=key, target=self.run, args=(value.get('port'),outputFile))
+                    self._thread.daemon = True
+                    self._thread.start()
+        self.busy = False
+
+    def run(self,portArg, outputFile):
+            print(portArg)
+            print(outputFile)
+            self.__logger.info("Running")
+            trios.runSampleFromPySAS(port=portArg,repeat=100,type=1, inttime=4096, file=outputFile)
+    
+    def parse_packets(self):
+        return
+    
+class RamsesEs(Sensor):
+
+    def __init__(self, cfg, data_logger=None, parser=None):
+        super().__init__(cfg, data_logger)
+        self.__logger = logging.getLogger(self.__class__.__name__)
+        self.__logger.info("Initialized")
+        self._packet_Li = None
+        self._parser = SatlanticParser() ## temporary
+        self._parser.cal = True
+        self.packet_THS_parsed = float('nan')
+        self.packet_THS_received = float('nan')
+        self._packet_THS_received = float('nan')
+        self.pitch = float('nan')
+        self.roll = float('nan')
+        self.Es = None
+        self.Es_config = cfg['RamsesEs']
+        self.outputFile = 'Es_data.txt'
+
+    
+    def start(self):
+        self.busy = True
+        ## will change later
+        if not self._parser.cal:
+            self.__loggLi_configer.critical('A calibration file is required for the system to work. '
+                                   'Please set a calibration file using the button "Select or Upload" under '
+                                   'the section "HyperSAS Device File" at the bottom of the sidebar.')
+        else:
+            self.busy = True
+            if not self.alive:
+                self.__logger.debug('start')
+                if self._relay is not None:
+                    self._relay.on()
+                sleep(5)  # Leave time for sensor to turn on
+                self.alive = True
+                self._thread = Thread(name=__class__.__name__, target=self.run, args=(self.Es_config.get('port'), self.outputFile))
                 self._thread.daemon = True
                 self._thread.start()
-            self.busy = False
+        self.busy = False
 
-    def run(self):
+    def run(self,portArg, outputFile):
+            print(portArg)
+            print(outputFile)
             self.__logger.info("Running")
-            trios.runSampleFromPySAS(port="/dev/ttyUSB0",repeat=5,type=1, inttime=1024, file="dados.txt")
+            trios.runSampleFromPySAS(port=portArg,repeat=100,type=1, inttime=4096, file=outputFile)
     
     def parse_packets(self):
         return
@@ -1185,11 +1240,6 @@ class Es(HyperOCR):
     def __init__(self, cfg, data_logger=None, parser=None):
         super().__init__(cfg, data_logger, parser)
         self.__logger = logging.getLogger(self.__class__.__name__)
-
-class RamsesEs(Sensor):
-
-    def __init__(self, cfg, data_logger=None, parser=None):
-        return
 
 
 if __name__ == '__main__':
