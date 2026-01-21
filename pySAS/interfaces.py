@@ -15,6 +15,7 @@ from pySAS.log import Log, LogBinary, pack_timestamp_satlantic, SatlanticLogger
 from gpiozero import OutputDevice
 from gpiozero.pins.mock import MockFactory  # required for virtual hardware
 from gpiozero.exc import BadPinFactory
+from pySAS.PyTriosFork.pytrios.radman import MissingSamModulesError
 import os
 from ubxtranslator.core import Parser as UBXParser
 from pySAS.ubxtranslator_messages import NAV_ARDUSIMPLE
@@ -752,6 +753,7 @@ class IMU(Sensor):
                 f',{self.yaw:.1f},{self.pitch:.1f},{self.roll:.1f}\x0D\x0A').encode('ascii')
 
 
+    
 class Ramses(Sensor):
 
     def __init__(self, cfg, data_logger=None, parser=None):
@@ -767,59 +769,8 @@ class Ramses(Sensor):
         self.pitch = float('nan')
         self.roll = float('nan')
         self.Es = None
-        self.Li_alive = None
-        self.Lt_alive = None
         self.Li_config = cfg['Ramses']
         self.Lt_config = cfg['RamsesLt']
-        self.configs = {'Li': self.Li_config,'Lt':self.Lt_config}
-        self.outputFiles = ['Li_data.txt','Lt_data.txt']
-
-    
-    def start(self):
-        self.busy = True
-        ## will change later
-        if not self._parser.cal:
-            self.__loggLi_configer.critical('A calibration file is required for the system to work. '
-                                   'Please set a calibration file using the button "Select or Upload" under '
-                                   'the section "HyperSAS Device File" at the bottom of the sidebar.')
-        else:
-            self.busy = True
-            if not self.alive:
-                self.__logger.debug('start')
-                if self._relay is not None:
-                    self._relay.on()
-                sleep(0.5)  # Leave time for sensor to turn on
-                self.alive = True
-                for (key,value), outputFile in zip(self.configs.items(),self.outputFiles):
-                    self._thread = Thread(name=key, target=self.run, args=(value.get('port'),outputFile))
-                    self._thread.daemon = True
-                    self._thread.start()
-        self.busy = False
-
-    def run(self,portArg, outputFile):
-            print(portArg)
-            print(outputFile)
-            self.__logger.info("Running")
-            trios.runSampleFromPySAS(port=portArg,repeat=100,type=1, inttime=4096, file=outputFile)
-    
-    def parse_packets(self):
-        return
-    
-class RamsesEs(Sensor):
-
-    def __init__(self, cfg, data_logger=None, parser=None):
-        super().__init__(cfg, data_logger)
-        self.__logger = logging.getLogger(self.__class__.__name__)
-        self.__logger.info("Initialized")
-        self._packet_Li = None
-        self._parser = SatlanticParser() ## temporary
-        self._parser.cal = True
-        self.packet_THS_parsed = float('nan')
-        self.packet_THS_received = float('nan')
-        self._packet_THS_received = float('nan')
-        self.pitch = float('nan')
-        self.roll = float('nan')
-        self.Es = None
         self.Es_config = cfg['RamsesEs']
         self.outputFile = 'Es_data.txt'
 
@@ -848,7 +799,17 @@ class RamsesEs(Sensor):
             print(portArg)
             print(outputFile)
             self.__logger.info("Running")
-            trios.runSampleFromPySAS(port=portArg,repeat=100,type=1, inttime=4096, file=outputFile)
+
+            foundAllSamModules = False
+
+            while not foundAllSamModules:
+                try:
+                    trios.runSampleFromPySAS(port=['/dev/ttyUSB0', '/dev/ttyUSB1','/dev/ttyUSB2'],repeat=5,type=1, inttime=4096, file=outputFile)
+                    foundAllSamModules = True
+                except MissingSamModulesError as e:
+                    self.__logger.warn(e)
+                
+
     
     def parse_packets(self):
         return
