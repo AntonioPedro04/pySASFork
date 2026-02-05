@@ -1,6 +1,6 @@
 from functools import reduce
 from operator import xor
-
+from collections import deque
 from serial import Serial, SerialException
 from timeit import default_timer
 from time import sleep, time
@@ -9,6 +9,7 @@ from math import isnan, floor
 from threading import Thread, Lock
 import logging
 from struct import unpack_from
+import numpy as np
 
 from pySAS import WORLD_MAGNETIC_MODEL
 from pySAS.log import Log, LogBinary, pack_timestamp_satlantic, SatlanticLogger
@@ -26,6 +27,8 @@ from pySatlantic.instrument import FrameError as SatlanticFrameError
 from pySatlantic.instrument import CalibrationFileError as SatlanticCalibrationFileError
 import atexit
 import pySAS.PyTriosFork.sample_trios as trios
+import pySAS.PyTriosFork.calibrate as triosCalibration
+
 
 def get_serial_instance(interface, cfg):
     s = Serial()
@@ -763,6 +766,7 @@ class Ramses(Sensor):
         self._packet_Li = None
         self._parser = SatlanticParser() ## temporary
         self._parser.cal = True
+        self.wavelength = np.arange(320,951,3.3)
         self.packet_THS_parsed = float('nan')
         self.packet_THS_received = float('nan')
         self._packet_THS_received = float('nan')
@@ -772,8 +776,14 @@ class Ramses(Sensor):
         self.Li_config = cfg['Ramses']
         self.Lt_config = cfg['RamsesLt']
         self.Es_config = cfg['RamsesEs']
-        self.outputFile = 'Es_data.txt'
+        self.outputFile = 'test_data.txt'
+        self.packet_Lt_parsed, self.packet_Li_parsed, self.packet_Es_parsed  = time(), time(),time()
+        self.Lt, self.Li,self.Es = None, None,None
+        self.Lt_wavelength = self.wavelength
+        self.Li_wavelength = self.wavelength
+        self.Es_wavelength = self.wavelength
 
+        # self.parse_packets()
     
     def start(self):
         self.busy = True
@@ -804,7 +814,7 @@ class Ramses(Sensor):
 
             while not foundAllSamModules:
                 try:
-                    trios.runSampleFromPySAS(port=['/dev/ttyUSB0', '/dev/ttyUSB1','/dev/ttyUSB2'],repeat=5,type=1, inttime=4096, file=outputFile)
+                    trios.runSampleFromPySAS(port=['/dev/ttyUSB0', '/dev/ttyUSB1','/dev/ttyUSB2'],repeat=1000,type=1, inttime=256, file=outputFile)
                     foundAllSamModules = True
                 except MissingSamModulesError as e:
                     self.__logger.warn(e)
@@ -812,6 +822,20 @@ class Ramses(Sensor):
 
     
     def parse_packets(self):
+
+        with open(self.outputFile) as f:
+            d = deque(f ,maxlen=3)
+            calibratedData = triosCalibration.calibrateDataFromPySAS(d)
+            # print(calibratedData)
+            
+            self.Li = calibratedData['8860'][3]
+            self.packet_Li_parsed = time()
+            self.Lt = calibratedData['8861'][3]
+            self.packet_Lt_parsed = time()
+            self.Es = calibratedData['514C'][3]
+            self.packet_Es_parsed = time()
+
+            
         return
 
     
