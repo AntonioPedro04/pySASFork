@@ -804,7 +804,7 @@ class Ramses(Sensor):
                 self._thread.daemon = True
                 self._thread.start()
         self.busy = False
-
+        # self.parse_packets()
     def run(self,portArg, outputFile):
             print(portArg)
             print(outputFile)
@@ -823,20 +823,53 @@ class Ramses(Sensor):
     
     def parse_packets(self):
 
-        with open(self.outputFile) as f:
-            d = deque(f ,maxlen=3)
-            calibratedData = triosCalibration.calibrateDataFromPySAS(d)
-            # print(calibratedData)
+            try:
+                with open(self.outputFile) as f:
+                    d = deque(f, maxlen=3)
+            except (FileNotFoundError, PermissionError) as e:
+                self.__logger.error(f"File access error: {e}")
+                return
+            except Exception as e:
+                self.__logger.error(f"Unexpected file error: {e}")
+                return
             
-            self.Li = calibratedData['8860'][3]
-            self.packet_Li_parsed = time()
-            self.Lt = calibratedData['8861'][3]
-            self.packet_Lt_parsed = time()
-            self.Es = calibratedData['514C'][3]
-            self.packet_Es_parsed = time()
+            try:
+                calibratedData = triosCalibration.calibrateDataFromPySAS(d)
+            except Exception as e:
+                self.__logger.error(f"Calibration error: {e}")
+                return 
+        
+            try:
+                self.Li = calibratedData['8860'][3]
+                self.packet_Li_parsed = time() 
+            except Exception as e:
+                self.__logger.debug(f"Li parsing error/missing: {e}")
+            
+            try:
+                self.Lt = calibratedData['8861'][3]
+                self.packet_Lt_parsed = time()
+            except Exception as e:
+                self.__logger.debug(f"Lt parsing error/missing: {e}")
+            
+            try:
+                self.Es = calibratedData['514C'][3]
+                current_time = time()
+                self.packet_Es_parsed = current_time
+                self._packet_Es_received = current_time
+            except Exception as e:
+                self.__logger.debug(f"Es spectrum parsing error/missing: {e}")
+            
+            try:
+                self.pitch = calibratedData['514C'][4]
+                self.roll = calibratedData['514C'][5] 
+                current_time = time()
+                self.packet_THS_parsed = current_time
+                self._packet_THS_received = current_time
+            except Exception as e:
+                self.__logger.debug(f"Es tilt values error/missing: {e}")
 
-            
-        return
+
+            return
 
     
         
@@ -1122,7 +1155,7 @@ class HyperOCR(Sensor):
         try:
             THS, _ = self._parser.parse_frame(self._packet_THS_raw)
             self.packet_THS_parsed = time()
-            self.roll, self.pitch, self.compass = THS['ROLL'], THS['PITCH'], THS['COMP']
+            self.roll, self.pitch, self.compass = THS['ROLL'], THS['PITCHw'], THS['COMP']
         except SatlanticFrameError as e:
             self.__logger.error('THS:' + e)
             self.roll, self.pitch, self.compass = float('nan'), float('nan'), float('nan')

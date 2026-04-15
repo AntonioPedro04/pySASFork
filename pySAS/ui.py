@@ -924,7 +924,7 @@ fig_spectrum = fig
 
 
 @app.callback(Output('fig_spectrum', 'figure'), Output('fig_spectrum_cache', 'data', allow_duplicate=True),
-              Input('hypersas_reading_intervals', 'n_intervals'),
+              Input('hypersas_reading_interval', 'n_intervals'),
               State('fig_spectrum_cache', 'data'), prevent_initial_call=True)
 def get_fig_spectrum(_, cache):
     fig = Patch()
@@ -1090,7 +1090,7 @@ app.layout = html.Div([
     sidebar, content,
     settings_modal, clock_sync_modal, halt_modal, error_modal,
     dcc.Interval(id='status_refresh_interval', interval=STATUS_REFRESH_INTERVAL),
-    dcc.Interval(id='hypersas_reading_intervals', interval=HYPERSAS_READING_INTERVAL),
+    dcc.Interval(id='hypersas_reading_interval', interval=HYPERSAS_READING_INTERVAL),
     dbc.Button(id='load_content', class_name='d-none'),
     html.Div(id='no_output', className='d-none'),
     html.Div(id='no_output_client', className='d-none'),
