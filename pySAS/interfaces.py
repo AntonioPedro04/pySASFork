@@ -1155,7 +1155,7 @@ class HyperOCR(Sensor):
         try:
             THS, _ = self._parser.parse_frame(self._packet_THS_raw)
             self.packet_THS_parsed = time()
-            self.roll, self.pitch, self.compass = THS['ROLL'], THS['PITCHw'], THS['COMP']
+            self.roll, self.pitch, self.compass = THS['ROLL'], THS['PITCH'], THS['COMP']
         except SatlanticFrameError as e:
             self.__logger.error('THS:' + e)
             self.roll, self.pitch, self.compass = float('nan'), float('nan'), float('nan')
