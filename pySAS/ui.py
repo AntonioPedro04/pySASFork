@@ -862,11 +862,13 @@ def get_fig_system_orientation(_0, _1, _2):
         sun = runner.sun_azimuth
     # Get HyperSAS Heading
     ths = float('nan')
-    if timestamp - runner.hypersas.packet_THS_parsed < runner.DATA_EXPIRED_DELAY:
-        if isnan(runner.gps.latitude):
-            ths = runner.hypersas.compass
-        else:
-            ths = runner.hypersas.compass_adj
+
+    if not 'Ramses' in runner.cfg.sections():
+        if timestamp - runner.hypersas.packet_THS_parsed < runner.DATA_EXPIRED_DELAY:
+            if isnan(runner.gps.latitude):
+                ths = runner.hypersas.compass
+            else:
+                ths = runner.hypersas.compass_adj
     # Get IMU Heading
     imu = float('nan')
     if runner.imu:
