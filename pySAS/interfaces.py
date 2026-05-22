@@ -487,6 +487,7 @@ class GPS(Sensor):
         super().__init__(cfg, data_logger)
         self.__logger = logging.getLogger(self.__class__.__name__)  # Need to recall logger as it's private
 
+        self.__logger.setLevel(logging.DEBUG)  # Set GPS logger to debug for more details on GPS parsing
 
         self._data_logger_lock = Lock()
         self._log_data = False
@@ -552,6 +553,7 @@ class GPS(Sensor):
                 packet = self._parser.receive_from(self._serial)
                 timestamp = time()
                 if packet:
+                    self.__logger.debug('GPS Packet Received')
                     self.handle_packet(packet, timestamp)
             except OSError as e:
                 self.__logger.error(e)
