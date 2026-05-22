@@ -145,7 +145,7 @@ class Runner:
                 # Get Sun Position
                 if not self.get_sun_position():
                     self._wait(iteration_timestamp)
-                    ## removed the continue for testing
+                    continue
 
                 # Toggle Sleep Mode
                 if self.sun_elevation < self.min_sun_elevation:  # TODO Implement sleep when no position or stalled
@@ -190,7 +190,7 @@ class Runner:
                 if not self.get_ship_heading():
                     self._wait(iteration_timestamp)
                     continue
-
+                self.__logger.info('Sun azimuth: %.10f' % self.sun_azimuth)
                 if not isnan(self.sun_azimuth):
                     # Compute aimed indexing table orientation
                     aimed_indexing_table_orientation = self.pilot.steer(self.sun_azimuth, self.ship_heading)
@@ -296,6 +296,7 @@ class Runner:
             if self.gps.heading_valid and time() - self.gps.packet_relposned_received < self.DATA_EXPIRED_DELAY:
                 self.ship_heading = self.pilot.get_ship_heading(self.gps.heading)
                 self.ship_heading_timestamp = self.gps.packet_relposned_received
+                self.__logger.info('Ship heading from GPS relative position: %.2f' % self.ship_heading)
                 return True
         elif self.heading_source == 'gps_motion':
             if self.gps.fix_ok and time() - self.gps.packet_pvt_received < self.DATA_EXPIRED_DELAY:
@@ -318,6 +319,8 @@ class Runner:
                 return True
         else:
             raise ValueError('Invalid heading source')
+        
+        self.__logger.info('Unable to get ship heading.')
         return False
 
     def make_umtwr_frame(self):
