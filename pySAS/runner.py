@@ -8,7 +8,7 @@ import socket
 import atexit
 from subprocess import run
 from threading import Thread
-from pySAS.interfaces import IndexingTable, GPS, HyperSAS, Es, IMU, Ramses
+from pySAS.interfaces import IndexingTable, GPS, HyperSAS, Es, IMU, ModBusTable, Ramses
 from pySAS import WORLD_MAGNETIC_MODEL
 
 # pySolar
@@ -77,7 +77,10 @@ class Runner:
         atexit.register(self.halt)
 
         # Controllers & Sensors
-        self.indexing_table = IndexingTable(self.cfg)
+        if 'ModbusTable' in self.cfg.sections():
+            self.indexing_table = ModBusTable(self.cfg)
+        else:
+            self.indexing_table = IndexingTable(self.cfg)
         self.gps = GPS(self.cfg, self.data_logger)
         self.es, self.imu = None, None
 

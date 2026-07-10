@@ -28,6 +28,7 @@ from pySatlantic.instrument import CalibrationFileError as SatlanticCalibrationF
 import atexit
 import pySAS.PyTriosFork.sample_trios as trios
 import pySAS.PyTriosFork.calibrate as triosCalibration
+from pymodbus.client import ModbusSerialClient
 
 
 def get_serial_instance(interface, cfg):
@@ -44,6 +45,63 @@ def get_serial_instance(interface, cfg):
     s.dsrdtr = cfg.getboolean(interface, 'dsrdtr', fallback=False)
     return s
 
+
+class ModBusTable:
+
+    GEAR_BOX_RATIO = 40000 / 360
+
+    def __init__(self, cfg):
+
+        self.alive = False
+        self.busy = False
+        self.stalled = False
+        current_indexing_table_orientation = 0.0
+        PORTA_COM = '/dev/ttyUSB3'   
+
+        # Inicializa o cliente Modbus RTU para o Xinje
+        client = ModbusSerialClient(
+            port=PORTA_COM,
+            baudrate=19200,
+            parity='E',
+            stopbits=1,
+            bytesize=8,
+            timeout=1
+        )
+
+
+
+        if client.connect():
+            print(f"✅ Conexão serial estabelecida na porta {PORTA_COM}.")
+
+            try:
+                print("▶️ Enviando comando de partida (Ligando M0)...")
+                # Nota: Se der erro de argumento, troque 'device_id=1' por 'slave=1' 
+                # dependendo da versão do pymodbus que o Windows instalou.
+                client.write_coil(0, True, device_id=1) 
+
+                print("Motor deve estar rodando! Mantendo por 5 segundos...")
+                sleep(5)
+
+                print("⏹️ Enviando comando de parada (Desligando M0)...")
+                client.write_coil(0, False, device_id=1)    
+                
+                print("Teste concluído com sucesso.")
+
+            except Exception as e:
+                print(f"❌ Ocorreu um erro durante a execução: {e}")
+
+            finally:
+                client.close()
+                print("🔌 Conexão encerrada e porta liberada.")
+        else:
+            print(f"❌ Erro: Não foi possível abrir a porta {PORTA_COM}.")
+            print("Verifique se o cabo está conectado e se o software XDPPro está FECHADO.")
+
+
+
+
+        
+        
 
 class IndexingTable:
     """
