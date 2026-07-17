@@ -49,56 +49,271 @@ def get_serial_instance(interface, cfg):
 class ModBusTable:
 
     GEAR_BOX_RATIO = 40000 / 360
+    POSITION_LIMITS = [-90, 90]
+    MOVEMENT_THRESHOLD = 10
+    PULSE_FREQUENCY = 1000
 
     def __init__(self, cfg):
+        section = "ModbusTable"
+
+        self.__logger = logging.getLogger(self.__class__.__name__)
+
+        self.port = cfg.get(section, "port", fallback="/dev/ttyUSB3")
+
+        self.gearbox_ratio = cfg.getfloat(
+            section,
+            "gearbox_ratio",
+            fallback=self.GEAR_BOX_RATIO,
+        )
+        self.movement_threshold = cfg.getfloat(
+            section,
+            "movement_threshold",
+            fallback=self.MOVEMENT_THRESHOLD,
+        )
 
         self.alive = False
         self.busy = False
         self.stalled = False
-        current_indexing_table_orientation = 0.0
-        PORTA_COM = '/dev/ttyUSB3'   
+        self.position = cfg.getfloat(
+            section,
+            "initial_position",
+            fallback=0.0,
+        )
+        self.packet_received = float("nan")
 
-        # Inicializa o cliente Modbus RTU para o Xinje
-        client = ModbusSerialClient(
-            port=PORTA_COM,
-            baudrate=19200,
-            parity='E',
-            stopbits=1,
-            bytesize=8,
-            timeout=1
+        atexit.register(self.stop)
+
+    def start(self):
+        self.alive = True
+        self.packet_received = time()
+
+        self.__logger.info(
+            f"Modbus indexing table started on port {self.port}."
         )
 
+        return True
 
+    def actuate_motor_via_plc(
+        self,
+        sleep_time: float,
+        positive_direction: bool,
+    ) -> bool:
+        """
+        Controls the motor through Modbus.
+
+        Coil 0 (M0): starts and stops the motor movement.
+        Coil 1 (M1): defines the movement direction.
+            True  -> counterclockwise.
+            False -> clockwise.
+        """
+        client = ModbusSerialClient(
+            port=self.port,
+            baudrate=19200,
+            parity="E",
+            stopbits=1,
+            bytesize=8,
+            timeout=1,
+        )
 
         if client.connect():
-            print(f"✅ Conexão serial estabelecida na porta {PORTA_COM}.")
+            self.__logger.info(
+                f"Modbus serial connection established on port {self.port}."
+            )
 
             try:
-                print("▶️ Enviando comando de partida (Ligando M0)...")
-                # Nota: Se der erro de argumento, troque 'device_id=1' por 'slave=1' 
-                # dependendo da versão do pymodbus que o Windows instalou.
-                client.write_coil(0, True, device_id=1) 
+                if positive_direction:
+                    self.__logger.info(
+                        "Positive direction: COUNTERCLOCKWISE. "
+                        "Turning on Coil 1 / M1."
+                    )
+                    client.write_coil(
+                        1,
+                        True,
+                        device_id=1,
+                    )
+                else:
+                    self.__logger.info(
+                        "Negative direction: CLOCKWISE. "
+                        "Turning off Coil 1 / M1."
+                    )
+                    client.write_coil(
+                        1,
+                        False,
+                        device_id=1,
+                    )
 
-                print("Motor deve estar rodando! Mantendo por 5 segundos...")
-                sleep(5)
+                sleep(0.1)
 
-                print("⏹️ Enviando comando de parada (Desligando M0)...")
-                client.write_coil(0, False, device_id=1)    
-                
-                print("Teste concluído com sucesso.")
+                self.__logger.info(
+                    "Sending start command: turning on Coil 0 / M0."
+                )
+                client.write_coil(
+                    0,
+                    True,
+                    device_id=1,
+                )
+
+                sleep(sleep_time)
+
+                self.__logger.info(
+                    "Sending stop command: turning off Coil 0 / M0."
+                )
+                client.write_coil(
+                    0,
+                    False,
+                    device_id=1,
+                )
+
+                self.__logger.info(
+                    "Movement completed successfully."
+                )
+                return True
 
             except Exception as e:
-                print(f"❌ Ocorreu um erro durante a execução: {e}")
+                self.__logger.error(
+                    f"A Modbus communication error occurred: {e}"
+                )
+
+                try:
+                    client.write_coil(
+                        0,
+                        False,
+                        device_id=1,
+                    )
+                except Exception:
+                    pass
+
+                return False
 
             finally:
                 client.close()
-                print("🔌 Conexão encerrada e porta liberada.")
-        else:
-            print(f"❌ Erro: Não foi possível abrir a porta {PORTA_COM}.")
-            print("Verifique se o cabo está conectado e se o software XDPPro está FECHADO.")
+                self.__logger.info(
+                    "Connection closed and port released."
+                )
 
+        self.__logger.error(
+            f"Unable to open port {self.port}."
+        )
+        return False
 
+    def set_position(
+        self,
+        position_degrees,
+        check_stall_flag=False,
+    ):
+        """
+        Moves the tower to the absolute position requested by pySAS.
 
+        The new motor is controlled using direction and movement time.
+        Therefore, this method calculates the relative displacement,
+        number of pulses, and activation time before calling
+        actuate_motor_via_plc().
+        """
+        if not self.alive:
+            self.__logger.error(
+                "set_position: indexing table has not been started"
+            )
+            return False
+
+        if (
+            position_degrees < self.POSITION_LIMITS[0]
+            or position_degrees > self.POSITION_LIMITS[1]
+        ):
+            self.__logger.error(
+                f"set_position: position outside the limits: "
+                f"{position_degrees}"
+            )
+            return False
+
+        self.busy = True
+
+        try:
+            delta_degrees = (
+                position_degrees - self.position + 180
+            ) % 360 - 180
+
+            self.__logger.info(
+                f"Target position: {position_degrees:.2f}°"
+            )
+            self.__logger.info(
+                f"Current position: {self.position:.2f}°"
+            )
+            self.__logger.info(
+                f"Required displacement: {delta_degrees:.2f}°"
+            )
+
+            if abs(delta_degrees) <= self.movement_threshold:
+                self.__logger.info(
+                    "Movement ignored because it is less than or equal "
+                    "to the minimum threshold."
+                )
+                return True
+
+            position_pulses = (
+                delta_degrees * self.gearbox_ratio
+            )
+            change_time = (
+                position_pulses / self.PULSE_FREQUENCY
+            )
+
+            sleep_time = abs(change_time)
+            positive_direction = delta_degrees >= 0
+
+            self.__logger.info(
+                f"Degrees to move: {delta_degrees:.2f}° | "
+                f"Pulses: {position_pulses:.2f}"
+            )
+            self.__logger.info(
+                f"Calculated motor time: {sleep_time:.2f} seconds"
+            )
+
+            if not self.actuate_motor_via_plc(
+                sleep_time,
+                positive_direction,
+            ):
+                return False
+
+            self.position = (
+                self.position + delta_degrees + 180
+            ) % 360 - 180
+
+            self.packet_received = time()
+
+            self.__logger.info(
+                f"New stored position: {self.position:.2f}°"
+            )
+            return True
+
+        finally:
+            self.busy = False
+
+    def get_position(self):
+        self.packet_received = time()
+        return self.position
+
+    def get_stall_flag(self):
+        self.stalled = False
+        return self.stalled
+
+    def stop(self):
+        if not self.alive:
+            return
+
+        try:
+            if self.client.connect():
+                self.client.write_coil(
+                    0,
+                    False,
+                    device_id=1,
+                )
+        except Exception as e:
+            self.__logger.error(
+                f"Error while stopping the motor: {e}"
+            )
+        finally:
+            self.client.close()
+            self.alive = False
+            self.busy = False
 
         
         
@@ -874,11 +1089,12 @@ class Ramses(Sensor):
 
             while not foundAllSamModules:
                 try:
-                    trios.runSampleFromPySAS(port=['/dev/ttyUSB0', '/dev/ttyUSB1','/dev/ttyUSB2'],repeat=1000,type=1, inttime=256, file=outputFile)
+                    trios.runSampleFromPySAS(port=['/dev/ttyUSB0', '/dev/ttyUSB1','/dev/ttyUSB2'],repeat=1000,type=1, inttime=0, file=outputFile)
                     foundAllSamModules = True
                 except MissingSamModulesError as e:
                     self.__logger.warn(e)
-                
+                except Exception as e:
+                    self.__logger.warn(e)
 
     
     def parse_packets(self):
