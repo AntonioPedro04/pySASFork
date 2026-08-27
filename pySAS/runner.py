@@ -26,6 +26,13 @@ class Runner:
     ASLEEP_DELAY = 120  # seconds
     ASLEEP_INTERRUPT = 120  # seconds
     HEADING_TOLERANCE = 0.2  # degrees ~ 111 motor steps
+    TEST_FAKE_SHIP_HEADING = False
+
+    TEST_SHIP_HEADINGS = [
+        10.0,
+        45.0
+    ]
+
 
     def __init__(self, cfg_filename=None):
         # Setup Logging
@@ -53,6 +60,10 @@ class Runner:
         self.sun_position_timestamp = float('nan')
         self.ship_heading = float('nan')
         self.ship_heading_timestamp = float('nan')
+        
+        # Fake ship-heading test
+        self._test_ship_heading_index = 0
+
         self.interrupt_from_ui = False
         self.reboot_from_ui = False
         self.time_synced = None
@@ -295,7 +306,32 @@ class Runner:
         Get heading of ship according to the source selected
         :return: True if succeeded and False otherwise
         """
-        if self.heading_source == 'gps_relative_position':
+        
+        if self.TEST_FAKE_SHIP_HEADING:
+            
+            if self._test_ship_heading_index >= len(self.TEST_SHIP_HEADINGS):
+                self._test_ship_heading_index = len(self.TEST_SHIP_HEADINGS) - 1
+
+            fake_heading = self.TEST_SHIP_HEADINGS[
+                self._test_ship_heading_index
+            ]
+
+            self.ship_heading = self.pilot.get_ship_heading(
+                fake_heading
+            )
+
+            self.ship_heading_timestamp = time()
+
+            self.__logger.warning(
+                'TEST MODE - Fake ship heading: %.2f°',
+                self.ship_heading
+            )
+
+            self._test_ship_heading_index += 1
+
+            return True
+        
+        elif self.heading_source == 'gps_relative_position':
             if self.gps.heading_valid and time() - self.gps.packet_relposned_received < self.DATA_EXPIRED_DELAY:
                 self.ship_heading = self.pilot.get_ship_heading(self.gps.heading)
                 self.ship_heading_timestamp = self.gps.packet_relposned_received
