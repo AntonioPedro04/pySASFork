@@ -82,7 +82,7 @@ sidebar = html.Div([
                 ], className="mt-5 mb-3"),
                 dbc.Row([
                     dbc.Label(runner.core_instrument_name, html_for="hypersas_switch", width=6),
-                    dbc.Col([
+                    dbc.Col([dbc.Button("Restart TriOS", id="restart_trios_button", color="warning", outline=True, size="sm", className="me-2"),
                         dbc.Switch(id="hypersas_switch", value=False, className='mt-2 ms-1 d-inline-block')],
                             width=6, className="text-end"),
                 ], className="mt-5 mb-3"),
@@ -227,6 +227,30 @@ def set_hypersas_switch(switch):
             if runner.imu:
                 runner.imu.stop()
             runner.gps.stop_logging()
+            
+@app.callback(
+    Output('no_output', 'children', allow_duplicate=True),
+    Input('restart_trios_button', 'n_clicks'),
+    prevent_initial_call=True
+)
+def restart_trios(n_clicks):
+
+    if not n_clicks:
+        raise PreventUpdate
+
+    if not runner.hypersas.alive:
+        logger.warning(
+            'restart_trios: RAMSES is not running'
+        )
+        raise PreventUpdate
+
+    logger.info(
+        'restart_trios: restarting TriOS sensors'
+    )
+
+    runner.hypersas.restart_trios()
+
+    return ''
 
 
 @app.callback(Output('no_output', 'children', allow_duplicate=True),

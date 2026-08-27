@@ -28,7 +28,9 @@ from pySatlantic.instrument import CalibrationFileError as SatlanticCalibrationF
 import atexit
 import pySAS.PyTriosFork.sample_trios as trios
 import pySAS.PyTriosFork.calibrate as triosCalibration
+from multiprocessing import get_context
 from pymodbus.client import ModbusSerialClient
+from threading import Thread, Lock, Event
 
 
 def get_serial_instance(interface, cfg):
@@ -1031,11 +1033,50 @@ class IMU(Sensor):
                 f',{self.yaw:.1f},{self.pitch:.1f},{self.roll:.1f}\x0D\x0A').encode('ascii')
 
 
+def run_trios_process(output_file):
+    """
+    Runs the complete software pyTrios measurement system
+    inside a separate process.
+    """
+
+    logger = logging.getLogger("TriosProcess")
+
+    foundAllSamModules = False
+
+    while not foundAllSamModules:
+        try:
+            logger.info("Trying to find all 3 SAM modules")
+
+            trios.runSampleFromPySAS(
+                port=[
+                    '/dev/ttyUSB0',
+                    '/dev/ttyUSB1',
+                    '/dev/ttyUSB2'
+                ],
+                repeat=1000,
+                type=1,
+                inttime=0,
+                file=output_file
+            )
+
+            foundAllSamModules = True
+
+        except MissingSamModulesError as e:
+            logger.warning(e)
+
+        except Exception as e:
+            logger.warning(e)
+
     
 class Ramses(Sensor):
 
     def __init__(self, cfg, data_logger=None, parser=None):
         super().__init__(cfg, data_logger)
+        
+        self._mp_context = get_context("spawn")
+        self._trios_process = None
+        self._restart_trios_event = Event()
+        
         self.__logger = logging.getLogger(self.__class__.__name__)
         self.__logger.info("Initialized")
         self._packet_Li = None
@@ -1080,23 +1121,130 @@ class Ramses(Sensor):
                 self._thread.start()
         self.busy = False
         # self.parse_packets()
-    def run(self,portArg, outputFile):
-            print(portArg)
-            print(outputFile)
-            self.__logger.info("Running")
+        
+    def restart_trios(self):
+        if not self.alive:
+            self.__logger.warning(
+                "Cannot restart TriOS: RAMSES is not running"
+            )
+            return
 
-            foundAllSamModules = False
+        self.__logger.info(
+            "TriOS restart requested"
+        )
 
-            while not foundAllSamModules:
-                try:
-                    trios.runSampleFromPySAS(port=['/dev/ttyUSB0', '/dev/ttyUSB1','/dev/ttyUSB2'],repeat=1000,type=1, inttime=0, file=outputFile)
-                    foundAllSamModules = True
-                except MissingSamModulesError as e:
-                    self.__logger.warn(e)
-                except Exception as e:
-                    self.__logger.warn(e)
+        self._restart_trios_event.set()
+        
+    def _start_trios_process(self):
 
-    
+        if (
+            self._trios_process is not None
+            and self._trios_process.is_alive()
+        ):
+            self.__logger.warning(
+                "TriOS process is already running"
+            )
+            return
+
+        self.__logger.info(
+            "Starting TriOS process"
+        )
+
+        self._trios_process = self._mp_context.Process(
+            target=run_trios_process,
+            args=(self.outputFile,),
+            name="TriOSProcess"
+        )
+
+        self._trios_process.start()
+
+        self.__logger.info(
+            f"TriOS process started with PID "
+            f"{self._trios_process.pid}"
+        )    
+        
+    def _stop_trios_process(self):
+
+        if self._trios_process is None:
+            return
+
+        if self._trios_process.is_alive():
+
+            self.__logger.info(
+                f"Stopping TriOS process "
+                f"{self._trios_process.pid}"
+            )
+
+            self._trios_process.terminate()
+
+            self._trios_process.join(timeout=5)
+
+            if self._trios_process.is_alive():
+
+                self.__logger.warning(
+                    "TriOS process did not terminate. Killing it."
+                )
+
+                self._trios_process.kill()
+                self._trios_process.join()
+
+        self.__logger.info(
+            "TriOS process stopped"
+        )
+
+        self._trios_process = None    
+        
+    def run(self, portArg, outputFile):
+
+        self.__logger.info(
+            "RAMSES supervisor thread running"
+        )
+
+        self._start_trios_process()
+
+        try:
+            while self.alive:
+
+                if self._restart_trios_event.is_set():
+
+                    self.__logger.info(
+                        "Restarting TriOS process"
+                    )
+
+                    self._restart_trios_event.clear()
+
+                    self._stop_trios_process()
+
+                    sleep(1)
+
+                    if self.alive:
+                        self._start_trios_process()
+
+                    continue
+
+                if (
+                    self._trios_process is not None
+                    and not self._trios_process.is_alive()
+                ):
+                    self.__logger.warning(
+                        "TriOS process stopped unexpectedly"
+                    )
+
+                    self._trios_process = None
+
+                    if self.alive:
+                        sleep(2)
+                        self._start_trios_process()
+
+                sleep(0.2)
+
+        finally:
+            self._stop_trios_process()
+
+            self.__logger.info(
+                "RAMSES supervisor thread finished"
+            )
+        
     def parse_packets(self):
 
             try:
